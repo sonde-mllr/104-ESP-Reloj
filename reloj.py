@@ -11,7 +11,7 @@ class RelojApp:
         self.label = tk.Label(self.root, font=("Helvetica", 48), fg="black")
         self.label.pack(expand=True)
 
-        self.boton1 = tk.Button(self.root,font=("Helvetica", 12), fg="black",)
+        self.boton1 = tk.Button(self.root,command=root.destroy,font=("Helvetica", 12), fg="black",)
         self.boton1.config(text="Quitar Reloj")
         self.boton1.pack()
 
@@ -20,6 +20,7 @@ class RelojApp:
     def actualizar_reloj(self):
         ahora = time.strftime("%H:%M:%S")
         self.label.config(text=ahora)
+        print(self.boton1.pack_info())
         self.root.after(1000, self.actualizar_reloj)
 
 def main():
