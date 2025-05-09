@@ -62,20 +62,6 @@ class Reloj(tk.Tk):
                 hora_actual = time.strftime('%H:%M:%S')
                 self.etiqueta_hora.config(text=hora_actual)
             case 3:
-                #self.boton_tempo.pack()
-                #if self.hora_inicio is None and self.cronometro:
-                #    self.hora_inicio = datetime.now()
-                #else:
-                #    self.hora_inicio = datetime.strptime("00:00:00","%H:%M:%S")
-                #if self.cronometro == True:
-                #    segundos = int((datetime.now() - self.hora_inicio).total_seconds())
-                #    minutos, segundos = divmod(segundos, 60)
-                #    horas, minutos = divmod(minutos, 60)
-                #    crono = f"{horas:02d}:{minutos:02d}:{segundos:02d}"
-                #    self.etiqueta_hora.config(text=crono)                    
-                #else:
-                #    
-                #    self.etiqueta_hora.config(text="00:00:00")
                 self.boton_tempo.pack()
                 if self.cronometro:
                     segundos = int((datetime.now() - self.hora_inicio).total_seconds())
