@@ -43,6 +43,7 @@ class Reloj(tk.Tk):
         self.boton_menos.pack(side="left",padx=10)
 
         self.indicador = tk.Label(self, **normal_font, **lbl_style,)
+        self.indicador.config(text=self.menu)
         self.indicador.pack()
 
         self.boton_tempo = tk.Button(
@@ -50,17 +51,26 @@ class Reloj(tk.Tk):
 
         self.actualizar_reloj()
 
-
-# FUNCIONES ===========================
+# ==================== #
+#       FUNCIONES 
+    
+    # ==================== #
+    #    ACTUALIZAR MENU
+    
+    # ==================== #
+    # Un macth donde cada caso
+    # es un elemento del menú
     def actualizar_reloj(self):
         match(self.menu):
             case 0:
                 self.etiqueta_hora.config(text="X")
             case 1:
                 self.etiqueta_hora.config(text="papota")
+            # Pantalla principal (Reloj)
             case 2:
                 hora_actual = time.strftime('%H:%M:%S')
                 self.etiqueta_hora.config(text=hora_actual)
+            # Cronometro
             case 3:
                 self.boton_tempo.pack()
                 if self.cronometro:
@@ -74,6 +84,7 @@ class Reloj(tk.Tk):
             case 4:
                 self.etiqueta_hora.config(text="X")
 
+        self.indicador.config(text=self.menu)
         self.after(1, self.actualizar_reloj)
 
         
@@ -81,20 +92,35 @@ class Reloj(tk.Tk):
             if bool(self.boton_tempo.winfo_ismapped()) is True:
                 self.boton_tempo.forget()
 
+    # ==================== #
+
+# ==================== #
+#       BOTONES
+
+    # ==================== #
+    #    DESPLAZAMIENTO: 
+
+    # Boton derecha
     def mas(self):
         print("¡Botón mas presionado!")
         if self.menu < self.menuMax:
             self.menu += 1
-        self.indicador.config(text=self.menu)
+        #self.indicador.config(text=self.menu)
         print(self.menu)
-
+    
+    # Boton izquierda
     def menos(self):
         print("¡Botón menos presionado!")
         if self.menu > self.menuMin:
             self.menu -= 1
-        self.indicador.config(text=self.menu)
+        #self.indicador.config(text=self.menu)
         print(self.menu)
+    
+    # ==================== #
 
+
+    # ==================== #
+    #        OTROS:
     def tempAlt(self):
         print("cronometro alternado")
         self.cronometro = not self.cronometro
@@ -103,10 +129,16 @@ class Reloj(tk.Tk):
         else:
             self.hora_inicio = None
         print(f"cronometro está : {self.cronometro}")
+    # ==================== #
+# ==================== #
 
+# ==================== #
+#        MAIN
 def main():
     app = Reloj()
     app.mainloop()
 
 if __name__ == "__main__":
     main()
+
+# ==================== #
