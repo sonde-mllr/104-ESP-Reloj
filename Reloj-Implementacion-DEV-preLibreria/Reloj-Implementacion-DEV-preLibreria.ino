@@ -1,10 +1,54 @@
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <NTPClient.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <driver/rtc_io.h>
 
-#include "funciones.h"
+// Rotary encoder:
+// A implemetar {Ajustar brillo pantalla,poner temporizador,poner hora,poner alarma}
+// Hacer diagrama de flujo luego de terminar con el examen 
+# define SW 2
+# define pinA 32
+# define pinB 33
 
+// Pantalla
+#define SCREEN_I2C_ADDR 0x3C
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RST_PIN -1
 
+// Pin animaciones (temporal)
+#define PIN_SIM 5
 
+// Pin pantalla (temporal)
+#define PIN_OLED 15
 
+bool displayOn = true;
 
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RST_PIN);
+
+// Credenciales WiFi (reemplázalas por las tuyas)
+const char* ssid = "";
+const char* password = "";
+
+// Configuración del cliente NTP
+WiFiUDP ntpUDP;
+// Para el horario español, se usa un offset de 3600 segundos (UTC+1).  
+// Nota: no se contempla el horario de verano; si fuera necesario, se podría ajustar dinámicamente.
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 2*3600, 60000); // Se actualiza cada minuto
+
+// Objeto preferencias (inicializacion):
+
+Preferences wifiPreferences;
+
+// Configuración de las animaciones
+#define FRAME_WIDTH 64
+#define FRAME_HEIGHT 64
+#define FRAME_SIZE 512    // Bytes por frame
+#define FRAME_DELAY 42
 
 // Animaciones almacenadas en PROGMEM
 const byte PROGMEM carga40[][512] = {
@@ -168,21 +212,6 @@ const int totalFramesApagado = sizeof(apagado) / FRAME_SIZE;
 // wifiAnim se usa únicamente durante la conexión
 const int totalFramesWifi  = sizeof(wifiAnim) / FRAME_SIZE;
 
-bool displayOn = true;
-
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RST_PIN);
-
-// Credenciales WiFi (reemplázalas por las tuyas)
-
-// Configuración del cliente NTP
-WiFiUDP ntpUDP;
-// Para el horario español, se usa un offset de 3600 segundos (UTC+1).  
-// Nota: no se contempla el horario de verano; si fuera necesario, se podría ajustar dinámicamente.
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 2*3600, 60000); // Se actualiza cada minuto
-// Objeto preferencias (inicializacion):
-Preferences wifiPreferences;
-
-
 // Modos: 0 = carga40, 1 = carga60, 2 = alarma, 3 = apagado, 4 = reloj
 int mode = 4;
 int frame = 0;
@@ -195,8 +224,41 @@ bool oledState = HIGH;
 unsigned long currentTime = 0;  // Hora actual en epoch
 unsigned long lastUpdate  = 0;  // Para controlar el incremento cada segundo
 
+// Función para reproducir una animación
+void playAnimation(const byte anim[][FRAME_SIZE], int frame, int totalFrames) {
+  display.clearDisplay();
+  // Se asume que drawBitmap puede leer directamente desde PROGMEM
+  display.drawBitmap((SCREEN_WIDTH - FRAME_WIDTH) / 2, 0, anim[frame], FRAME_WIDTH, FRAME_HEIGHT, SSD1306_WHITE);
+  display.display();
+  delay(FRAME_DELAY);
+}
+
+// Función para mostrar el reloj (sin retardo bloqueante)
+void displayClock() {
+  display.clearDisplay();
+  
+  // Convierte currentTime a una estructura tm
+  time_t rawTime = currentTime;
+  struct tm timeInfo;
+  localtime_r(&rawTime, &timeInfo);
+  
+  char timeStr[9];  // "HH:MM:SS"
+  char dateStr[11]; // "DD/MM/YYYY"
+  sprintf(timeStr, "%02d:%02d:%02d", timeInfo.tm_hour, timeInfo.tm_min, timeInfo.tm_sec);
+  sprintf(dateStr, "%02d/%02d/%04d", timeInfo.tm_mday, timeInfo.tm_mon + 1, timeInfo.tm_year + 1900);
+  
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(10, 10);
+  display.println(timeStr);
+  display.setTextSize(1);
+  display.setCursor(10, 40);
+  display.println(dateStr);
+  display.display();
+}
 
 WebServer server(80);
+Preferences preferences;
 
 void setup() {
   Serial.begin(115200);
@@ -207,7 +269,101 @@ void setup() {
   pinMode(PIN_OLED, INPUT_PULLUP);
   display.begin(SSD1306_SWITCHCAPVCC, SCREEN_I2C_ADDR);
 
-  wifiNTPSetup(wifiPreferences,server,ntpUDP,timeClient);
+  wifiPreferences.begin("wifi-creds", false);  // AÑADIDO
+  
+  // Intentar conexión con credenciales guardadas
+  String savedSSID = wifiPreferences.getString("ssid", "");
+  String savedPass = wifiPreferences.getString("password", "");
+  
+  // MODIFICADO: Conexión con timeout de 10 segundos
+  if (savedSSID != "") {
+    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+    Serial.print("Conectando a WiFi guardado: ");
+    Serial.println(savedSSID);
+    
+    unsigned long startTime = millis();
+    frame = 0;
+    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000) {
+      playAnimation(wifiAnim, frame, totalFramesWifi);
+      frame = (frame + 1) % totalFramesWifi;
+      Serial.print(".");
+      delay(100);  // Pequeña pausa para estabilidad WiFi
+    }
+  }
+
+  // MODIFICADO: Si no se conectó, iniciar modo AP
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nFallo conexión. Iniciando modo AP...");
+    WiFi.softAP("RelojConfig", "config1234");
+    Serial.print("AP creado. IP: ");
+    Serial.println(WiFi.softAPIP());
+
+    // Configurar servidor web
+    server.on("/", HTTP_GET, []() {
+      server.send(200, "text/html", 
+        "<form action='/save'>"
+        "SSID: <input name='ssid'><br>"
+        "Password: <input name='pass' type='password'><br>"
+        "<input type='submit'></form>");
+    });
+
+    server.on("/save", HTTP_GET, []() {
+      String newSSID = server.arg("ssid");
+      String newPass = server.arg("pass");
+      
+      wifiPreferences.putString("ssid", newSSID);
+      wifiPreferences.putString("password", newPass);
+      
+      server.send(200, "text/plain", "Credenciales guardadas. Reiniciando...");
+      delay(1000);
+      ESP.restart();
+    });
+    
+    server.begin();
+    
+    // Bucle principal en modo AP
+    while(true) {
+      server.handleClient();
+      playAnimation(wifiAnim, frame, totalFramesWifi);
+      frame = (frame + 1) % totalFramesWifi;
+      delay(FRAME_DELAY);
+    }
+  }
+
+  // [Resto de inicialización igual si se conectó...]
+  timeClient.begin();
+  frame = 0;
+  while (!timeClient.update()) {
+    playAnimation(wifiAnim, frame, totalFramesWifi);
+    frame = (frame + 1) % totalFramesWifi;
+    Serial.println("Esperando actualización NTP...");
+  }
+  
+  // Guarda la hora obtenida (en epoch)
+  currentTime = timeClient.getEpochTime();
+  mode = 4;  // Forzar modo reloj aunque ya esté establecido (redundante por seguridad)
+  Serial.print("Hora NTP obtenida: ");
+  Serial.println(currentTime);
+  
+  // Durante 5 segundos, comprobar que el tiempo se incrementa igual que el del servidor
+  Serial.println("Comprobando incremento de tiempo durante 5 segundos...");
+  unsigned long t0 = currentTime;
+  for (int i = 0; i < 5; i++) {
+    delay(1000);
+    currentTime++; // Simula el incremento interno cada segundo
+    Serial.print("Tiempo interno: ");
+    Serial.println(currentTime);
+  }
+  Serial.print("Diferencia con hora NTP inicial: ");
+  Serial.println(currentTime - t0);
+  
+  // Desconectar WiFi para ahorrar recursos
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  Serial.println("WiFi desconectado.");
+  
+  // Inicializa el contador para actualizar cada segundo
+  lastUpdate = millis();
 }
 
 void loop() {

@@ -1,6 +1,8 @@
-void wifiNTPSetup(){
+#include "funciones.h"
+
+void wifiNTPSetup(Preferences &prefer,WebServer &server,WiFiUDP &ntpUDP,NTPClient &timeClient){
   // Documentación de preferences https://docs.espressif.com/projects/arduino-esp32/en/latest/tutorials/preferences.html
-  wifiPreferences.begin("wifi-creds",false); // Crea y abre el nameespace si no existe || si existe lo abre
+  prefer.begin("wifi-creds",false); // Crea y abre el nameespace si no existe || si existe lo abre
   // Con el segundo argumento siendo false, el namespace se abre en modo lectura-escritura (si fuese true sería solo lectura)
   // Para entender los namespace vamos a hacer un simil. Tengo una familia por parte de padre y otra por parte de madre...
   // puedo identificar a cada familia por mis apellidos siendo el primero el apellido de mi padre y el segundo el de mi madre
@@ -20,8 +22,8 @@ void wifiNTPSetup(){
   // Explicación sacada de https://stackoverflow.com/questions/991036/what-is-a-namespace
   
   // Intenta conexion con credenciales guardadas
-  String savedSSID = wifiPreferences.getString("ssid","");
-  String savedPass = wifiPreferences.getString("password","");
+  String savedSSID = prefer.getString("ssid","");
+  String savedPass = prefer.getString("password","");
   
   // Si el ssid es diferente a nada se intenta conectar a ese ssid
   if( savedSSID != ""){
@@ -52,21 +54,23 @@ void wifiNTPSetup(){
       Serial.println(WiFi.softAPIP());
 
       // Servidor web
-      server.on("/",HTTP_GET,[](){
-        server.send(200,"text/html","<form action='/save'>"
-          "SSID:<input name='ssid'><br>"
-          "Password:<input name='pass' type='password'<br>"
-          "<input type='submit'></form>"
-      });
+      server.on("/", HTTP_GET, [&]() {
+        server.send(200, "text/html", 
+          "<form action='/save'>"
+          "SSID: <input name='ssid'><br>"
+          "Password: <input name='pass' type='password'><br>"
+          "<input type='submit'></form>");
+    });
 
-      server.on("/save",HTTP_GET,[](){
+      server.on("/save",HTTP_GET,[&](){
         String newSSID = server.arg("ssid");
         String newPass = server.arg("pass");
-
-        wifiPreferences.putString("ssid",newSSID);
-        wifiPreferences.putString("password",newSSID);
+        Serial.println(newPass);
+        prefer.putString("ssid",newSSID);
+        prefer.putString("password",newPass);
 
         server.send(200,"text/plain","Credenciales guardadas. Reiniciando...");
+        
         delay(1000);
         ESP.restart();
       });
@@ -85,12 +89,12 @@ void wifiNTPSetup(){
   timeClient.begin();
   // COMPROBAR [[TODO]] -> Esta animación podría quitarla creo que no añade nada
   frame = 0;
-  while(!timeClient.update()){
-    playAnimation(wifiAnim,rame,totalFramesWifi);
+  /*while(!timeClient.update()){
+    playAnimation(wifiAnim,frame,totalFramesWifi);
     frame = (frame+1) % totalFramesWifi;
     delay(FRAME_DELAY);
-    Serial.prinln("Esperando actualización NTP...");
-  }
+    Serial.println("Esperando actualización NTP...");
+  }*/
 
   currentTime = timeClient.getEpochTime();
   mode = 4; // Mode es la variable que indica en qué menú está el reloj siendo 4 el principal (Reloj y fecha) lo fuerza para asegurar que se inicia en esta pantalla
@@ -98,13 +102,13 @@ void wifiNTPSetup(){
   Serial.println(currentTime);
   // Comprobar eque el timepo interno y el tiempo del servidor son iguales durante 5 segundos
   // [[TODO]] -> Comprobar si este código es necesario
-  Serial.println("Comprobando incremento de tiempo durante 5 segundos")
+  Serial.println("Comprobando incremento de tiempo durante 5 segundos");
   unsigned long t0 = currentTime;
-  for(int i = 0;i<5,i++){
+  for(int i = 0;i<5;i++){
     delay(1000);
     currentTime++;
     Serial.print("Tiempo interno: ");
-    Serial.prtinln(currentTime);
+    Serial.println(currentTime);
   }
   Serial.print("Diferencia con la hora NTP inicial: ");
   Serial.println(currentTime);
@@ -118,3 +122,35 @@ void wifiNTPSetup(){
 }
 
 
+// Función para reproducir una animación
+void playAnimation(const byte anim[][FRAME_SIZE], int frame, int totalFrames) {
+  display.clearDisplay();
+  // Se asume que drawBitmap puede leer directamente desde PROGMEM
+  display.drawBitmap((SCREEN_WIDTH - FRAME_WIDTH) / 2, 0, anim[frame], FRAME_WIDTH, FRAME_HEIGHT, SSD1306_WHITE);
+  display.display();
+  delay(FRAME_DELAY);
+}
+
+// Función para mostrar el reloj (sin retardo bloqueante)
+void displayClock() {
+  display.clearDisplay();
+  
+  // Convierte currentTime a una estructura tm
+  time_t rawTime = currentTime;
+  struct tm timeInfo;
+  localtime_r(&rawTime, &timeInfo);
+  
+  char timeStr[9];  // "HH:MM:SS"
+  char dateStr[11]; // "DD/MM/YYYY"
+  sprintf(timeStr, "%02d:%02d:%02d", timeInfo.tm_hour, timeInfo.tm_min, timeInfo.tm_sec);
+  sprintf(dateStr, "%02d/%02d/%04d", timeInfo.tm_mday, timeInfo.tm_mon + 1, timeInfo.tm_year + 1900);
+  
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(10, 10);
+  display.println(timeStr);
+  display.setTextSize(1);
+  display.setCursor(10, 40);
+  display.println(dateStr);
+  display.display();
+}
